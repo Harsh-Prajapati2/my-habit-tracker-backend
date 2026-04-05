@@ -1,4 +1,5 @@
 const Habit = require('../models/Habit');
+const cache = require('../utils/cache');
 
 // @desc    Create habit
 // @route   POST /api/habits
@@ -6,6 +7,7 @@ const Habit = require('../models/Habit');
 const createHabit = async (req, res, next) => {
   try {
     const { name, description, category, color, scheduledTimes, repeatDays, reminder, goal, notes } = req.body;
+    const userId = req.user.id;
 
     if (!name || !category || !scheduledTimes || scheduledTimes.length === 0 || !repeatDays || repeatDays.length === 0) {
       return res.status(400).json({
@@ -15,7 +17,7 @@ const createHabit = async (req, res, next) => {
     }
 
     const habit = await Habit.create({
-      userId: req.user.id,
+      userId,
       name,
       description,
       category,
@@ -26,6 +28,9 @@ const createHabit = async (req, res, next) => {
       goal,
       notes,
     });
+
+    // Invalidate dashboard cache
+    cache.invalidate(`dashboard:${userId}`);
 
     res.status(201).json({ success: true, data: habit });
   } catch (error) {
@@ -68,9 +73,10 @@ const getHabitById = async (req, res, next) => {
 // @access  Private
 const updateHabit = async (req, res, next) => {
   try {
+    const userId = req.user.id;
     let habit = await Habit.findById(req.params.id);
 
-    if (!habit || habit.userId.toString() !== req.user.id) {
+    if (!habit || habit.userId.toString() !== userId) {
       return res.status(404).json({ success: false, message: 'Habit not found' });
     }
 
@@ -78,6 +84,9 @@ const updateHabit = async (req, res, next) => {
       new: true,
       runValidators: true,
     });
+
+    // Invalidate dashboard cache
+    cache.invalidate(`dashboard:${userId}`);
 
     res.json({ success: true, data: habit });
   } catch (error) {
@@ -90,13 +99,17 @@ const updateHabit = async (req, res, next) => {
 // @access  Private
 const deleteHabit = async (req, res, next) => {
   try {
+    const userId = req.user.id;
     const habit = await Habit.findById(req.params.id);
 
-    if (!habit || habit.userId.toString() !== req.user.id) {
+    if (!habit || habit.userId.toString() !== userId) {
       return res.status(404).json({ success: false, message: 'Habit not found' });
     }
 
     await Habit.findByIdAndDelete(req.params.id);
+
+    // Invalidate dashboard cache
+    cache.invalidate(`dashboard:${userId}`);
 
     res.json({ success: true, data: {} });
   } catch (error) {
@@ -109,14 +122,18 @@ const deleteHabit = async (req, res, next) => {
 // @access  Private
 const toggleHabitActive = async (req, res, next) => {
   try {
+    const userId = req.user.id;
     const habit = await Habit.findById(req.params.id);
 
-    if (!habit || habit.userId.toString() !== req.user.id) {
+    if (!habit || habit.userId.toString() !== userId) {
       return res.status(404).json({ success: false, message: 'Habit not found' });
     }
 
     habit.isActive = !habit.isActive;
     await habit.save();
+
+    // Invalidate dashboard cache
+    cache.invalidate(`dashboard:${userId}`);
 
     res.json({ success: true, data: habit });
   } catch (error) {

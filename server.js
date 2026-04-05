@@ -1,11 +1,13 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const compression = require('compression');
 require('dotenv').config();
 
 const app = express();
 
 // Middleware
+app.use(compression()); // Compress responses
 app.use(cors());
 app.use(express.json());
 

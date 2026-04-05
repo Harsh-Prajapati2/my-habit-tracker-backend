@@ -1,5 +1,6 @@
 const Completion = require('../models/Completion');
 const Habit = require('../models/Habit');
+const cache = require('../utils/cache');
 
 // @desc    Mark habit complete for today
 // @route   POST /api/completions
@@ -7,6 +8,7 @@ const Habit = require('../models/Habit');
 const markHabitComplete = async (req, res, next) => {
   try {
     const { habitId } = req.body;
+    const userId = req.user.id;
 
     if (!habitId) {
       return res.status(400).json({ success: false, message: 'Please provide habitId' });
@@ -14,7 +16,7 @@ const markHabitComplete = async (req, res, next) => {
 
     // Check habit exists
     const habit = await Habit.findById(habitId);
-    if (!habit || habit.userId.toString() !== req.user.id) {
+    if (!habit || habit.userId.toString() !== userId) {
       return res.status(404).json({ success: false, message: 'Habit not found' });
     }
 
@@ -24,7 +26,7 @@ const markHabitComplete = async (req, res, next) => {
 
     // Check if already completed today
     let completion = await Completion.findOne({
-      userId: req.user.id,
+      userId,
       habitId,
       completedDate: today,
     });
@@ -35,10 +37,13 @@ const markHabitComplete = async (req, res, next) => {
 
     // Create completion record
     completion = await Completion.create({
-      userId: req.user.id,
+      userId,
       habitId,
       completedDate: today,
     });
+
+    // Invalidate dashboard cache
+    cache.invalidate(`dashboard:${userId}`);
 
     res.status(201).json({ success: true, data: completion });
   } catch (error) {
@@ -144,13 +149,17 @@ const getCompletionStats = async (req, res, next) => {
 // @access  Private
 const undoCompletion = async (req, res, next) => {
   try {
+    const userId = req.user.id;
     const completion = await Completion.findById(req.params.id);
 
-    if (!completion || completion.userId.toString() !== req.user.id) {
+    if (!completion || completion.userId.toString() !== userId) {
       return res.status(404).json({ success: false, message: 'Completion not found' });
     }
 
     await Completion.findByIdAndDelete(req.params.id);
+
+    // Invalidate dashboard cache
+    cache.invalidate(`dashboard:${userId}`);
 
     res.json({ success: true, data: {} });
   } catch (error) {
