@@ -1,6 +1,7 @@
 const Task = require('../models/Task');
 const TaskTopic = require('../models/TaskTopic');
 const { buildCompletionMeta, normalizeChecklist, sanitizeText, sortChecklist } = require('../utils/planner');
+const DEFAULT_TASK_TOPIC_NAME = 'General';
 
 const formatTaskTopic = (topic) => ({
   id: topic._id.toString(),
@@ -234,12 +235,107 @@ const getTaskTopics = async (req, res) => {
   }
 };
 
+// @desc    Rename task topic
+// @route   PUT /api/tasks/topics/:id
+// @access  Private
+const updateTaskTopic = async (req, res) => {
+  try {
+    const topic = await TaskTopic.findById(req.params.id);
+
+    if (!topic || topic.userId.toString() !== req.user.id) {
+      return res.status(404).json({ success: false, message: 'Task topic not found' });
+    }
+
+    const nextName = sanitizeText(req.body?.name);
+    if (!nextName) {
+      return res.status(400).json({ success: false, message: 'Task main topic name is required' });
+    }
+
+    const nextNameKey = nextName.toLowerCase();
+    const conflictingTopic = await TaskTopic.findOne({
+      userId: req.user.id,
+      nameKey: nextNameKey,
+      _id: { $ne: topic._id },
+    });
+
+    if (conflictingTopic) {
+      return res.status(409).json({ success: false, message: 'A task topic with this name already exists' });
+    }
+
+    const previousName = topic.name;
+    topic.name = nextName;
+    topic.nameKey = nextNameKey;
+    topic.updatedAt = new Date();
+    await topic.save();
+
+    if (previousName !== nextName) {
+      await Task.updateMany(
+        { userId: req.user.id, category: previousName },
+        { $set: { category: nextName, updatedAt: new Date() } }
+      );
+    }
+
+    return res.json({ success: true, data: formatTaskTopic(topic) });
+  } catch (error) {
+    return res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Delete task topic
+// @route   DELETE /api/tasks/topics/:id
+// @access  Private
+const deleteTaskTopic = async (req, res) => {
+  try {
+    const topic = await TaskTopic.findById(req.params.id);
+
+    if (!topic || topic.userId.toString() !== req.user.id) {
+      return res.status(404).json({ success: false, message: 'Task topic not found' });
+    }
+
+    const taskCount = await Task.countDocuments({ userId: req.user.id, category: topic.name });
+    let reassignedTopic = null;
+
+    if (taskCount > 0) {
+      if (topic.nameKey === DEFAULT_TASK_TOPIC_NAME.toLowerCase()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Move tasks out of General before deleting this topic',
+        });
+      }
+
+      const ensured = await ensureTaskTopic(req.user.id, DEFAULT_TASK_TOPIC_NAME);
+      reassignedTopic = ensured.topic;
+
+      await Task.updateMany(
+        { userId: req.user.id, category: topic.name },
+        { $set: { category: reassignedTopic.name, updatedAt: new Date() } }
+      );
+    }
+
+    await TaskTopic.findByIdAndDelete(topic._id);
+
+    return res.json({
+      success: true,
+      data: {
+        id: topic._id.toString(),
+        deletedName: topic.name,
+        reassignedCount: taskCount,
+        reassignedTopic: reassignedTopic ? formatTaskTopic(reassignedTopic) : null,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   createTaskTopic,
   createTask,
   deleteTask,
+  deleteTaskTopic,
   getAllTasks,
   getTaskTopics,
   toggleTaskComplete,
   updateTask,
+  updateTaskTopic,
 };

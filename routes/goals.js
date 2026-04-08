@@ -3,10 +3,12 @@ const {
   createGoalTopic,
   createGoal,
   deleteGoal,
+  deleteGoalTopic,
   getAllGoals,
   getGoalTopics,
   toggleGoalComplete,
   updateGoal,
+  updateGoalTopic,
 } = require('../controllers/goals');
 const { protect } = require('../middleware/auth');
 
@@ -16,6 +18,8 @@ router.use(protect);
 
 router.post('/topics', createGoalTopic);
 router.get('/topics', getGoalTopics);
+router.put('/topics/:id', updateGoalTopic);
+router.delete('/topics/:id', deleteGoalTopic);
 router.post('/', createGoal);
 router.get('/', getAllGoals);
 router.put('/:id', updateGoal);

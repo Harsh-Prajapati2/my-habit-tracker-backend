@@ -1,6 +1,7 @@
 const Goal = require('../models/Goal');
 const GoalTopic = require('../models/GoalTopic');
 const { buildCompletionMeta, normalizeChecklist, sanitizeText, sortChecklist } = require('../utils/planner');
+const DEFAULT_GOAL_TOPIC_NAME = 'General';
 
 const formatGoalTopic = (topic) => ({
   id: topic._id.toString(),
@@ -261,12 +262,107 @@ const getGoalTopics = async (req, res) => {
   }
 };
 
+// @desc    Rename goal topic
+// @route   PUT /api/goals/topics/:id
+// @access  Private
+const updateGoalTopic = async (req, res) => {
+  try {
+    const topic = await GoalTopic.findById(req.params.id);
+
+    if (!topic || topic.userId.toString() !== req.user.id) {
+      return res.status(404).json({ success: false, message: 'Goal topic not found' });
+    }
+
+    const nextName = sanitizeText(req.body?.name);
+    if (!nextName) {
+      return res.status(400).json({ success: false, message: 'Goal main topic name is required' });
+    }
+
+    const nextNameKey = nextName.toLowerCase();
+    const conflictingTopic = await GoalTopic.findOne({
+      userId: req.user.id,
+      nameKey: nextNameKey,
+      _id: { $ne: topic._id },
+    });
+
+    if (conflictingTopic) {
+      return res.status(409).json({ success: false, message: 'A goal topic with this name already exists' });
+    }
+
+    const previousName = topic.name;
+    topic.name = nextName;
+    topic.nameKey = nextNameKey;
+    topic.updatedAt = new Date();
+    await topic.save();
+
+    if (previousName !== nextName) {
+      await Goal.updateMany(
+        { userId: req.user.id, category: previousName },
+        { $set: { category: nextName, updatedAt: new Date() } }
+      );
+    }
+
+    return res.json({ success: true, data: formatGoalTopic(topic) });
+  } catch (error) {
+    return res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Delete goal topic
+// @route   DELETE /api/goals/topics/:id
+// @access  Private
+const deleteGoalTopic = async (req, res) => {
+  try {
+    const topic = await GoalTopic.findById(req.params.id);
+
+    if (!topic || topic.userId.toString() !== req.user.id) {
+      return res.status(404).json({ success: false, message: 'Goal topic not found' });
+    }
+
+    const goalCount = await Goal.countDocuments({ userId: req.user.id, category: topic.name });
+    let reassignedTopic = null;
+
+    if (goalCount > 0) {
+      if (topic.nameKey === DEFAULT_GOAL_TOPIC_NAME.toLowerCase()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Move goals out of General before deleting this topic',
+        });
+      }
+
+      const ensured = await ensureGoalTopic(req.user.id, DEFAULT_GOAL_TOPIC_NAME);
+      reassignedTopic = ensured.topic;
+
+      await Goal.updateMany(
+        { userId: req.user.id, category: topic.name },
+        { $set: { category: reassignedTopic.name, updatedAt: new Date() } }
+      );
+    }
+
+    await GoalTopic.findByIdAndDelete(topic._id);
+
+    return res.json({
+      success: true,
+      data: {
+        id: topic._id.toString(),
+        deletedName: topic.name,
+        reassignedCount: goalCount,
+        reassignedTopic: reassignedTopic ? formatGoalTopic(reassignedTopic) : null,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   createGoalTopic,
   createGoal,
   deleteGoal,
+  deleteGoalTopic,
   getAllGoals,
   getGoalTopics,
   toggleGoalComplete,
   updateGoal,
+  updateGoalTopic,
 };

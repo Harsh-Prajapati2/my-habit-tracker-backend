@@ -3,10 +3,12 @@ const {
   createTaskTopic,
   createTask,
   deleteTask,
+  deleteTaskTopic,
   getAllTasks,
   getTaskTopics,
   toggleTaskComplete,
   updateTask,
+  updateTaskTopic,
 } = require('../controllers/tasks');
 const { protect } = require('../middleware/auth');
 
@@ -16,6 +18,8 @@ router.use(protect);
 
 router.post('/topics', createTaskTopic);
 router.get('/topics', getTaskTopics);
+router.put('/topics/:id', updateTaskTopic);
+router.delete('/topics/:id', deleteTaskTopic);
 router.post('/', createTask);
 router.get('/', getAllTasks);
 router.put('/:id', updateTask);
